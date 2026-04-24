@@ -2,93 +2,91 @@ package portscanner
 
 import (
 	"bufio"
+	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
 )
 
-// PortEntry represents a single listening port binding.
+// PortEntry represents a single bound port observed in /proc/net/tcp.
 type PortEntry struct {
-	Protocol string
-	LocalAddr string
-	Port     int
-	PID      int
-	Process  string
+	Port    int
+	Address string
+	PID     int
 }
 
-// Scanner reads active port bindings from the system.
-type Scanner struct{}
+// ScannerFunc is a function type that implements the Scanner interface.
+type ScannerFunc func() ([]PortEntry, error)
 
-// NewScanner creates a new Scanner instance.
+// Scan calls the underlying function.
+func (f ScannerFunc) Scan() ([]PortEntry, error) { return f() }
+
+// Scanner reads current port bindings from the OS.
+type Scanner struct {
+	procNetTCP string
+}
+
+// NewScanner returns a Scanner reading from the standard /proc/net/tcp path.
 func NewScanner() *Scanner {
-	return &Scanner{}
+	return &Scanner{procNetTCP: "/proc/net/tcp"}
 }
 
-// Scan returns the current list of listening port entries.
+// Scan returns all currently bound TCP ports.
 func (s *Scanner) Scan() ([]PortEntry, error) {
-	entries, err := parseProcNet("/proc/net/tcp")
-	if err != nil {
-		return nil, fmt.Errorf("scanning tcp ports: %w", err)
-	}
-	udpEntries, err := parseProcNet("/proc/net/udp")
-	if err != nil {
-		return nil, fmt.Errorf("scanning udp ports: %w", err)
-	}
-	return append(entries, udpEntries...), nil
+	return parseProcNet(s.procNetTCP)
 }
 
 func parseProcNet(path string) ([]PortEntry, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	defer f.Close()
 
-	protocol := "tcp"
-	if strings.Contains(path, "udp") {
-		protocol = "udp"
-	}
-
 	var entries []PortEntry
 	scanner := bufio.NewScanner(f)
-	scanner.Scan() // skip header
+	first := true
 	for scanner.Scan() {
+		if first {
+			first = false
+			continue
+		}
 		fields := strings.Fields(scanner.Text())
 		if len(fields) < 4 {
 			continue
 		}
-		// state 0A = listening for TCP
-		if protocol == "tcp" && fields[3] != "0A" {
+		// Skip non-LISTEN state (0A == 10 == LISTEN).
+		if fields[3] != "0A" {
 			continue
 		}
-		addr := fields[1]
-		parts := strings.Split(addr, ":")
+		local := fields[1]
+		parts := strings.SplitN(local, ":", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		portHex := parts[1]
-		port, err := strconv.ParseInt(portHex, 16, 32)
+		ip, err := hexToIP(parts[0])
 		if err != nil {
 			continue
 		}
-		entries = append(entries, PortEntry{
-			Protocol:  protocol,
-			LocalAddr: hexToIP(parts[0]),
-			Port:      int(port),
-		})
+		port, err := strconv.ParseInt(parts[1], 16, 32)
+		if err != nil {
+			continue
+		}
+		entries = append(entries, PortEntry{Port: int(port), Address: ip})
 	}
 	return entries, scanner.Err()
 }
 
-func hexToIP(hex string) string {
-	if len(hex) != 8 {
-		return hex
-	}
-	d, err := strconv.ParseUint(hex, 16, 32)
+func hexToIP(h string) (string, error) {
+	b, err := hex.DecodeString(h)
 	if err != nil {
-		return hex
+		return "", err
 	}
-	return fmt.Sprintf("%d.%d.%d.%d",
-		byte(d), byte(d>>8), byte(d>>16), byte(d>>24))
+	if len(b) == 4 {
+		// Little-endian for IPv4.
+		return net.IPv4(b[3], b[2], b[1], b[0]).String(), nil
+	}
+	return "", fmt.Errorf("unsupported address length %d", len(b))
 }
