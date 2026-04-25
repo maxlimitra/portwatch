@@ -39,6 +39,28 @@ func buildFakeProc(t *testing.T, pid int, comm string, inode uint64) string {
 	return root
 }
 
+// makeMinimalProcDir creates a minimal /proc-like directory for a given pid
+// and writes the provided comm name. It returns the proc root directory.
+func makeMinimalProcDir(t *testing.T, pid int, comm string) string {
+	t.Helper()
+	root := t.TempDir()
+	pidDir := filepath.Join(root, filepath.FromSlash(itoa(pid)))
+	if err := os.MkdirAll(filepath.Join(pidDir, "fd"), 0o755); err != nil {
+		t.Fatalf("makeMinimalProcDir mkdir: %v", err)
+	}
+	if comm != "" {
+		if err := os.WriteFile(filepath.Join(pidDir, "comm"), []byte(comm+"\n"), 0o644); err != nil {
+			t.Fatalf("makeMinimalProcDir write comm: %v", err)
+		}
+	}
+	return root
+}
+
+// itoa converts an int to its decimal string representation.
+func itoa(n int) string {
+	return fmt.Sprintf("%d", n)
+}
+
 func TestResolverReadProcessNameFallback(t *testing.T) {
 	root := t.TempDir()
 	// No comm file — should return "unknown"
