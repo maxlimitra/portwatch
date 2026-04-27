@@ -39,15 +39,22 @@ Run a one-time scan and print current bindings:
 portwatch scan
 ```
 
+Stop a running daemon:
+
+```bash
+portwatch stop
+```
+
 ### Flags
 
 | Flag | Description | Default |
-|------|-------------|---------|
+|------|-------------|----------|
 | `--ports` | Comma-separated list of ports to watch | — |
 | `--range` | Port range to monitor (e.g. `3000-9000`) | — |
 | `--interval` | Poll interval | `10s` |
 | `--log` | Log output file | stdout |
 | `--alert` | Alert command to run on conflict | — |
+| `--pid` | Path to PID file (used by `stop`) | `/tmp/portwatch.pid` |
 
 ---
 
