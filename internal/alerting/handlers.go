@@ -41,10 +41,12 @@ func JSONHandler(w io.Writer) Handler {
 
 // FileHandler returns a Handler that appends alerts as newline-delimited JSON
 // to the file at the given path, creating it if it does not exist.
-func FileHandler(path string) (Handler, error) {
+// The caller is responsible for closing the underlying file when done; to
+// support this, the opened *os.File is returned alongside the Handler.
+func FileHandler(path string) (Handler, io.Closer, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("alerting: open log file %q: %w", path, err)
+		return nil, nil, fmt.Errorf("alerting: open log file %q: %w", path, err)
 	}
-	return JSONHandler(f), nil
+	return JSONHandler(f), f, nil
 }
